@@ -12,7 +12,7 @@ go install github.com/johejo/xlsxconv@latest
 
 
 ```
-xlsx2csv -sheet=$SHEET_NAME -format=$FORMAT < $SOURCE > $DESTINATION
+xlsxconv -sheet=$SHEET_NAME -format=$FORMAT < $SOURCE > $DESTINATION
 ```
 
 ```
