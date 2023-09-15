@@ -19,19 +19,27 @@ import (
 )
 
 var (
-	sheet  string
-	format string
+	sheet       string
+	sheetIndex  int
+	format      string
+	headerRowIndex int
 )
 
 func init() {
 	flag.StringVar(&sheet, "sheet", "", "Sheet name (defaults to first sheet)")
+	flag.IntVar(&sheetIndex, "sheet-index", 0, "Sheet index (defaults to first sheet)")
 	flag.StringVar(&format, "format", "csv", `Output format ("csv", "json", "yaml")`)
+	flag.IntVar(&headerRowIndex, "header-row-index", 0, "Row index to use as header for json and yaml format (defaults to first row)")
 }
 
 func main() {
 	flag.Parse()
 	signal.Ignore(syscall.SIGPIPE)
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
+
+	if sheet != "" && sheetIndex > 0 {
+		log.Fatal("cannot specify both sheet and sheet-index")
+	}
 
 	f, err := excelize.OpenReader(os.Stdin)
 	if err != nil {
@@ -40,8 +48,14 @@ func main() {
 	defer f.Close()
 
 	sheets := f.GetSheetList()
+	if sheet == "" && 0 < sheetIndex && sheetIndex < len(sheets) {
+		sheet = sheets[sheetIndex]
+	}
 	if sheet == "" && len(sheets) > 0 {
 		sheet = sheets[0]
+	}
+	if sheet == "" {
+		log.Fatal("no sheet found")
 	}
 
 	rows, err := f.GetRows(sheet)
@@ -61,7 +75,7 @@ func main() {
 	case "json":
 		err = toJSON(w, rows)
 	case "yaml":
-		err = encode(w, rows, yaml.NewEncoder(w).Encode)
+		err = toYAML(w, rows)
 	default:
 		err = fmt.Errorf("invalid formt %s", format)
 	}
@@ -93,32 +107,35 @@ func toCSV(w io.Writer, rows [][]string) error {
 }
 
 func toJSON(w io.Writer, rows [][]string) error {
-  enc := json.NewEncoder(w)
-  enc.SetIndent("", "  ")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
 	return encode(w, rows, enc.Encode)
 }
 
+func toYAML(w io.Writer, rows [][]string) error {
+	return encode(w, rows, yaml.NewEncoder(w).Encode)
+}
+
 func encode(w io.Writer, rows [][]string, encodeFn func(v any) error) error {
-	header := rows[0]
+	header := rows[headerRowIndex]
 	for i, h := range header {
 		header[i] = normalize(h)
 	}
 	list := make([]map[string]any, 0, len(rows)-1)
 	for _, row := range rows[1:] {
 		item := make(map[string]any, len(row))
-		for i, c := range row {
+		for i, c := range row[:len(header)-1] {
 			c = normalize(c)
-			var v any
+			k := header[i]
 			if n, ok := isInt(c); ok {
-				v = n
+				item[k] = n
 			} else if n, ok := isFloat(c); ok {
-				v = n
+				item[k] = n
 			} else if b, ok := isBool(c); ok {
-				v = b
+				item[k] = b
 			} else {
-				v = c
+				item[k] = c
 			}
-			item[header[i]] = v
 		}
 		list = append(list, item)
 	}
